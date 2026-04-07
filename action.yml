@@ -1,5 +1,5 @@
 name: "SWEny Triage — SRE Alert Investigation"
-description: "Watch your observability provider for new incidents, investigate root cause, file tickets, and (optionally) open fix PRs. Powered by SWEny."
+description: "Monitor alerts, investigate root cause, file tickets, and open fix PRs — automatically."
 author: "SWEny"
 
 branding:
