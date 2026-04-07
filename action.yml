@@ -1,0 +1,321 @@
+name: "SWEny Triage — SRE Alert Investigation"
+description: "Watch your observability provider for new incidents, investigate root cause, file tickets, and (optionally) open fix PRs. Powered by SWEny."
+author: "SWEny"
+
+branding:
+  icon: "activity"
+  color: "orange"
+
+inputs:
+  # ── Auth ──────────────────────────────────────────────────────────────
+  claude-oauth-token:
+    description: "Claude Code OAuth token. Use this OR anthropic-api-key. OAuth tokens do not consume API credit."
+    required: false
+  anthropic-api-key:
+    description: "Anthropic API key for Claude. Use this OR claude-oauth-token."
+    required: false
+
+  # ── Observability provider ────────────────────────────────────────────
+  observability-provider:
+    description: "Observability provider (datadog, sentry, betterstack, cloudwatch, splunk, elastic, newrelic, loki, prometheus, honeycomb, axiom, pagerduty, heroku, opsgenie, vercel, supabase, netlify, fly, render, file). Defaults to datadog."
+    required: false
+    default: "datadog"
+  dd-api-key:
+    description: "Datadog API key (when observability-provider = datadog)."
+    required: false
+  dd-app-key:
+    description: "Datadog Application key (when observability-provider = datadog)."
+    required: false
+  dd-site:
+    description: "Datadog site, e.g. datadoghq.com, datadoghq.eu."
+    required: false
+    default: "datadoghq.com"
+  sentry-auth-token:
+    description: "Sentry auth token (when observability-provider = sentry)."
+    required: false
+  sentry-org:
+    description: "Sentry organization slug."
+    required: false
+  sentry-project:
+    description: "Sentry project slug."
+    required: false
+  sentry-base-url:
+    description: "Sentry base URL (default: https://sentry.io)."
+    required: false
+    default: "https://sentry.io"
+  betterstack-api-token:
+    description: "Better Stack API token, used for both Uptime and Telemetry."
+    required: false
+  betterstack-source-id:
+    description: "Better Stack Telemetry source ID — scopes log queries to a specific source."
+    required: false
+  betterstack-table-name:
+    description: 'Better Stack Telemetry ClickHouse table name (e.g. "t273774.my_source").'
+    required: false
+
+  # ── Issue tracker ─────────────────────────────────────────────────────
+  issue-tracker-provider:
+    description: "Issue tracker provider (github-issues, linear, jira). Defaults to github-issues."
+    required: false
+    default: "github-issues"
+  linear-api-key:
+    description: "Linear API key (when issue-tracker-provider = linear)."
+    required: false
+  linear-team-id:
+    description: "Linear team UUID."
+    required: false
+  linear-bug-label-id:
+    description: "Linear label UUID for bugs."
+    required: false
+  linear-triage-label-id:
+    description: "Linear label UUID for agent-triage issues."
+    required: false
+  linear-state-backlog:
+    description: "Linear workflow state UUID for Backlog."
+    required: false
+  linear-state-in-progress:
+    description: "Linear workflow state UUID for In Progress."
+    required: false
+  linear-state-peer-review:
+    description: "Linear workflow state UUID for Peer Review."
+    required: false
+  jira-base-url:
+    description: "Jira base URL, e.g. https://myco.atlassian.net (when issue-tracker-provider = jira)."
+    required: false
+  jira-email:
+    description: "Jira user email for API authentication."
+    required: false
+  jira-api-token:
+    description: "Jira API token."
+    required: false
+
+  # ── Source control ────────────────────────────────────────────────────
+  source-control-provider:
+    description: "Source control provider (github, gitlab). Defaults to github."
+    required: false
+    default: "github"
+  github-token:
+    description: "GitHub token for API access and PR creation."
+    required: false
+    default: "${{ github.token }}"
+  bot-token:
+    description: "Optional bot token with elevated permissions (cross-repo dispatch, push to protected branches)."
+    required: false
+  gitlab-token:
+    description: "GitLab personal access token (when source-control-provider = gitlab)."
+    required: false
+  gitlab-project-id:
+    description: "GitLab project ID or path (e.g. my-group/my-project)."
+    required: false
+  gitlab-base-url:
+    description: "GitLab instance base URL."
+    required: false
+    default: "https://gitlab.com"
+
+  # ── Notification ──────────────────────────────────────────────────────
+  notification-provider:
+    description: "Notification provider (console, github-summary, slack, teams, discord, email, webhook, file). Defaults to github-summary."
+    required: false
+    default: "github-summary"
+  notification-webhook-url:
+    description: "Webhook URL for Slack, Teams, Discord, or generic webhook notifications."
+    required: false
+
+  # ── Investigation knobs ───────────────────────────────────────────────
+  time-range:
+    description: "Time range to analyze (e.g. 1h, 6h, 24h, 7d)."
+    required: false
+    default: "24h"
+  severity-focus:
+    description: "Severity focus (errors, warnings, all)."
+    required: false
+    default: "errors"
+  service-filter:
+    description: "Service filter pattern (e.g. my-service, api-*, *)."
+    required: false
+    default: "*"
+  investigation-depth:
+    description: "Investigation depth (quick, standard, thorough)."
+    required: false
+    default: "standard"
+  max-investigate-turns:
+    description: "Max Claude turns for investigation phase."
+    required: false
+    default: "50"
+  max-implement-turns:
+    description: "Max Claude turns for implementation phase."
+    required: false
+    default: "30"
+
+  # ── PR / branch settings ──────────────────────────────────────────────
+  base-branch:
+    description: "Target branch for PRs (e.g. main, master, develop)."
+    required: false
+    default: "main"
+  pr-labels:
+    description: "Comma-separated list of labels applied to created PRs."
+    required: false
+    default: "agent,triage,needs-review"
+
+  # ── Behavior ──────────────────────────────────────────────────────────
+  dry-run:
+    description: "Dry run mode — analyze only, do not create issues or PRs."
+    required: false
+    default: "false"
+  review-mode:
+    description: "PR merge behavior: 'auto' (enable GitHub auto-merge when CI passes — automatically suppressed for high-risk changes such as migrations, auth, lockfiles, or >20 files), 'review' (open PR and wait for human approval)."
+    required: false
+    default: "review"
+  novelty-mode:
+    description: "Only report novel issues not already tracked in your issue tracker."
+    required: false
+    default: "true"
+  additional-instructions:
+    description: 'Additional instructions for Claude (e.g., "focus on the webhook handler").'
+    required: false
+    default: ""
+  service-map-path:
+    description: "Path to the service ownership map YAML file."
+    required: false
+    default: ".github/service-map.yml"
+
+  # ── Setup ─────────────────────────────────────────────────────────────
+  cli-version:
+    description: "Version of @sweny-ai/core to install (the package that ships the `sweny` CLI). Defaults to latest."
+    required: false
+    default: "latest"
+  node-version:
+    description: "Node.js version to install."
+    required: false
+    default: "24"
+  working-directory:
+    description: "Working directory to run from. Defaults to the repository root."
+    required: false
+    default: "."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate auth inputs
+      shell: bash
+      env:
+        HAS_OAUTH: ${{ inputs.claude-oauth-token != '' }}
+        HAS_API_KEY: ${{ inputs.anthropic-api-key != '' }}
+      run: |
+        if [ "$HAS_OAUTH" != "true" ] && [ "$HAS_API_KEY" != "true" ]; then
+          echo "::error::Either claude-oauth-token or anthropic-api-key must be provided"
+          exit 1
+        fi
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install SWEny CLI
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: npm install -g "@sweny-ai/core@${CLI_VERSION}"
+
+    - name: Run sweny triage
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # ── Auth ────────────────────────────────────────────────────────
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-oauth-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+
+        # ── Source control ──────────────────────────────────────────────
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        BOT_TOKEN: ${{ inputs.bot-token }}
+        GITLAB_TOKEN: ${{ inputs.gitlab-token }}
+        GITLAB_PROJECT_ID: ${{ inputs.gitlab-project-id }}
+        GITLAB_BASE_URL: ${{ inputs.gitlab-base-url }}
+
+        # ── Issue tracker ───────────────────────────────────────────────
+        LINEAR_API_KEY: ${{ inputs.linear-api-key }}
+        LINEAR_TEAM_ID: ${{ inputs.linear-team-id }}
+        LINEAR_BUG_LABEL_ID: ${{ inputs.linear-bug-label-id }}
+        LINEAR_TRIAGE_LABEL_ID: ${{ inputs.linear-triage-label-id }}
+        LINEAR_STATE_BACKLOG: ${{ inputs.linear-state-backlog }}
+        LINEAR_STATE_IN_PROGRESS: ${{ inputs.linear-state-in-progress }}
+        LINEAR_STATE_PEER_REVIEW: ${{ inputs.linear-state-peer-review }}
+        JIRA_BASE_URL: ${{ inputs.jira-base-url }}
+        JIRA_EMAIL: ${{ inputs.jira-email }}
+        JIRA_API_TOKEN: ${{ inputs.jira-api-token }}
+
+        # ── Observability ───────────────────────────────────────────────
+        DD_API_KEY: ${{ inputs.dd-api-key }}
+        DD_APP_KEY: ${{ inputs.dd-app-key }}
+        DD_SITE: ${{ inputs.dd-site }}
+        SENTRY_AUTH_TOKEN: ${{ inputs.sentry-auth-token }}
+        SENTRY_ORG: ${{ inputs.sentry-org }}
+        SENTRY_PROJECT: ${{ inputs.sentry-project }}
+        SENTRY_BASE_URL: ${{ inputs.sentry-base-url }}
+        BETTERSTACK_API_TOKEN: ${{ inputs.betterstack-api-token }}
+        BETTERSTACK_SOURCE_ID: ${{ inputs.betterstack-source-id }}
+        BETTERSTACK_TABLE_NAME: ${{ inputs.betterstack-table-name }}
+
+        # ── Notification ────────────────────────────────────────────────
+        NOTIFICATION_WEBHOOK_URL: ${{ inputs.notification-webhook-url }}
+
+        # ── Behavior knobs (passed as flags below) ──────────────────────
+        OBS_PROVIDER: ${{ inputs.observability-provider }}
+        ISSUE_TRACKER: ${{ inputs.issue-tracker-provider }}
+        SOURCE_CONTROL: ${{ inputs.source-control-provider }}
+        NOTIFY_PROVIDER: ${{ inputs.notification-provider }}
+        TIME_RANGE: ${{ inputs.time-range }}
+        SEVERITY_FOCUS: ${{ inputs.severity-focus }}
+        SERVICE_FILTER: ${{ inputs.service-filter }}
+        INVESTIGATION_DEPTH: ${{ inputs.investigation-depth }}
+        MAX_INVESTIGATE_TURNS: ${{ inputs.max-investigate-turns }}
+        MAX_IMPLEMENT_TURNS: ${{ inputs.max-implement-turns }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        PR_LABELS: ${{ inputs.pr-labels }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        REVIEW_MODE: ${{ inputs.review-mode }}
+        NOVELTY_MODE: ${{ inputs.novelty-mode }}
+        ADDITIONAL_INSTRUCTIONS: ${{ inputs.additional-instructions }}
+        SERVICE_MAP_PATH: ${{ inputs.service-map-path }}
+      run: |
+        ARGS=( "triage" )
+
+        [ -n "$OBS_PROVIDER" ]          && ARGS+=( --observability-provider "$OBS_PROVIDER" )
+        [ -n "$ISSUE_TRACKER" ]         && ARGS+=( --issue-tracker-provider "$ISSUE_TRACKER" )
+        [ -n "$SOURCE_CONTROL" ]        && ARGS+=( --source-control-provider "$SOURCE_CONTROL" )
+        [ -n "$NOTIFY_PROVIDER" ]       && ARGS+=( --notification-provider "$NOTIFY_PROVIDER" )
+
+        [ -n "$TIME_RANGE" ]            && ARGS+=( --time-range "$TIME_RANGE" )
+        [ -n "$SEVERITY_FOCUS" ]        && ARGS+=( --severity-focus "$SEVERITY_FOCUS" )
+        [ -n "$SERVICE_FILTER" ]        && ARGS+=( --service-filter "$SERVICE_FILTER" )
+        [ -n "$INVESTIGATION_DEPTH" ]   && ARGS+=( --investigation-depth "$INVESTIGATION_DEPTH" )
+        [ -n "$MAX_INVESTIGATE_TURNS" ] && ARGS+=( --max-investigate-turns "$MAX_INVESTIGATE_TURNS" )
+        [ -n "$MAX_IMPLEMENT_TURNS" ]   && ARGS+=( --max-implement-turns "$MAX_IMPLEMENT_TURNS" )
+
+        [ -n "$BASE_BRANCH" ]           && ARGS+=( --base-branch "$BASE_BRANCH" )
+        [ -n "$PR_LABELS" ]             && ARGS+=( --pr-labels "$PR_LABELS" )
+        [ -n "$REVIEW_MODE" ]           && ARGS+=( --review-mode "$REVIEW_MODE" )
+        [ -n "$SERVICE_MAP_PATH" ]      && ARGS+=( --service-map-path "$SERVICE_MAP_PATH" )
+
+        # Provider-specific scalar flags
+        [ -n "$DD_SITE" ]               && ARGS+=( --dd-site "$DD_SITE" )
+        [ -n "$SENTRY_ORG" ]            && ARGS+=( --sentry-org "$SENTRY_ORG" )
+        [ -n "$SENTRY_PROJECT" ]        && ARGS+=( --sentry-project "$SENTRY_PROJECT" )
+        [ -n "$SENTRY_BASE_URL" ]       && ARGS+=( --sentry-base-url "$SENTRY_BASE_URL" )
+        [ -n "$BETTERSTACK_SOURCE_ID" ] && ARGS+=( --betterstack-source-id "$BETTERSTACK_SOURCE_ID" )
+        [ -n "$BETTERSTACK_TABLE_NAME" ] && ARGS+=( --betterstack-table-name "$BETTERSTACK_TABLE_NAME" )
+        [ -n "$LINEAR_TEAM_ID" ]        && ARGS+=( --linear-team-id "$LINEAR_TEAM_ID" )
+        [ -n "$LINEAR_BUG_LABEL_ID" ]   && ARGS+=( --linear-bug-label-id "$LINEAR_BUG_LABEL_ID" )
+        [ -n "$LINEAR_TRIAGE_LABEL_ID" ] && ARGS+=( --linear-triage-label-id "$LINEAR_TRIAGE_LABEL_ID" )
+        [ -n "$LINEAR_STATE_BACKLOG" ]  && ARGS+=( --linear-state-backlog "$LINEAR_STATE_BACKLOG" )
+        [ -n "$LINEAR_STATE_IN_PROGRESS" ] && ARGS+=( --linear-state-in-progress "$LINEAR_STATE_IN_PROGRESS" )
+        [ -n "$LINEAR_STATE_PEER_REVIEW" ] && ARGS+=( --linear-state-peer-review "$LINEAR_STATE_PEER_REVIEW" )
+        [ -n "$GITLAB_BASE_URL" ]       && ARGS+=( --gitlab-base-url "$GITLAB_BASE_URL" )
+
+        [ -n "$ADDITIONAL_INSTRUCTIONS" ] && ARGS+=( --additional-instructions "$ADDITIONAL_INSTRUCTIONS" )
+
+        if [ "$DRY_RUN" = "true" ]; then ARGS+=( --dry-run ); fi
+        if [ "$NOVELTY_MODE" = "false" ]; then ARGS+=( --no-novelty-mode ); fi
+
+        sweny "${ARGS[@]}"
