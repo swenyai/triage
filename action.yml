@@ -7,12 +7,24 @@ branding:
   color: "orange"
 
 inputs:
+  # ── Coding agent ──────────────────────────────────────────────────────
+  agent:
+    description: "Coding agent provider (claude, codex, gemini). Defaults to claude."
+    required: false
+    default: "claude"
+
   # ── Auth ──────────────────────────────────────────────────────────────
   claude-oauth-token:
     description: "Claude Code OAuth token. Use this OR anthropic-api-key. OAuth tokens do not consume API credit."
     required: false
   anthropic-api-key:
     description: "Anthropic API key for Claude. Use this OR claude-oauth-token."
+    required: false
+  openai-api-key:
+    description: "OpenAI API key (when agent = codex)."
+    required: false
+  gemini-api-key:
+    description: "Gemini API key (when agent = gemini). GOOGLE_API_KEY is also accepted by the CLI."
     required: false
 
   # ── Observability provider ────────────────────────────────────────────
@@ -52,6 +64,13 @@ inputs:
   betterstack-table-name:
     description: 'Better Stack Telemetry ClickHouse table name (e.g. "t273774.my_source").'
     required: false
+  newrelic-api-key:
+    description: "New Relic User API key (when observability-provider = newrelic)."
+    required: false
+  newrelic-region:
+    description: "New Relic region (us, eu). Defaults to us."
+    required: false
+    default: "us"
 
   # ── Issue tracker ─────────────────────────────────────────────────────
   issue-tracker-provider:
@@ -88,6 +107,12 @@ inputs:
   jira-api-token:
     description: "Jira API token."
     required: false
+  issue-override:
+    description: "Work on a specific existing issue (e.g. an issue ID/URL) instead of discovering new ones."
+    required: false
+  issue-labels:
+    description: "Comma-separated extra labels applied to every agent-created issue (e.g. agent UUID for Linear, 'agent' for GitHub Issues)."
+    required: false
 
   # ── Source control ────────────────────────────────────────────────────
   source-control-provider:
@@ -119,6 +144,37 @@ inputs:
     default: "github-summary"
   notification-webhook-url:
     description: "Webhook URL for Slack, Teams, Discord, or generic webhook notifications."
+    required: false
+
+  # ── Workspace tools ───────────────────────────────────────────────────
+  # Comma-separated workspace integrations the agent should be allowed to
+  # use during investigation (e.g. read incident threads in Slack, look up
+  # runbooks in Notion). Each enabled tool also needs its credential set.
+  workspace-tools:
+    description: "Comma-separated workspace tool integrations (slack, notion, pagerduty, monday, asana)."
+    required: false
+  slack-bot-token:
+    description: "Slack bot token (when workspace-tools includes slack)."
+    required: false
+  slack-team-id:
+    description: "Slack workspace/team ID."
+    required: false
+  notion-api-key:
+    description: "Notion integration token (when workspace-tools includes notion). NOTION_TOKEN is also accepted."
+    required: false
+  pagerduty-api-token:
+    description: "PagerDuty API token (when workspace-tools includes pagerduty)."
+    required: false
+  monday-token:
+    description: "Monday.com API token (when workspace-tools includes monday)."
+    required: false
+  asana-access-token:
+    description: "Asana personal access token (when workspace-tools includes asana)."
+    required: false
+
+  # ── Custom MCP servers ────────────────────────────────────────────────
+  mcp-servers-json:
+    description: "JSON object mapping server names to McpServerConfig. Merged into the auto-detected MCP set."
     required: false
 
   # ── Investigation knobs ───────────────────────────────────────────────
@@ -225,6 +281,8 @@ runs:
         # ── Auth ────────────────────────────────────────────────────────
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-oauth-token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
 
         # ── Source control ──────────────────────────────────────────────
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -256,11 +314,25 @@ runs:
         BETTERSTACK_API_TOKEN: ${{ inputs.betterstack-api-token }}
         BETTERSTACK_SOURCE_ID: ${{ inputs.betterstack-source-id }}
         BETTERSTACK_TABLE_NAME: ${{ inputs.betterstack-table-name }}
+        NR_API_KEY: ${{ inputs.newrelic-api-key }}
+        NR_REGION: ${{ inputs.newrelic-region }}
 
         # ── Notification ────────────────────────────────────────────────
         NOTIFICATION_WEBHOOK_URL: ${{ inputs.notification-webhook-url }}
 
+        # ── Workspace tools ─────────────────────────────────────────────
+        SLACK_BOT_TOKEN: ${{ inputs.slack-bot-token }}
+        SLACK_TEAM_ID: ${{ inputs.slack-team-id }}
+        NOTION_API_KEY: ${{ inputs.notion-api-key }}
+        PAGERDUTY_API_TOKEN: ${{ inputs.pagerduty-api-token }}
+        MONDAY_TOKEN: ${{ inputs.monday-token }}
+        ASANA_ACCESS_TOKEN: ${{ inputs.asana-access-token }}
+
+        # ── Custom MCP servers ──────────────────────────────────────────
+        SWENY_MCP_SERVERS: ${{ inputs.mcp-servers-json }}
+
         # ── Behavior knobs (passed as flags below) ──────────────────────
+        AGENT: ${{ inputs.agent }}
         OBS_PROVIDER: ${{ inputs.observability-provider }}
         ISSUE_TRACKER: ${{ inputs.issue-tracker-provider }}
         SOURCE_CONTROL: ${{ inputs.source-control-provider }}
@@ -278,9 +350,13 @@ runs:
         NOVELTY_MODE: ${{ inputs.novelty-mode }}
         ADDITIONAL_INSTRUCTIONS: ${{ inputs.additional-instructions }}
         SERVICE_MAP_PATH: ${{ inputs.service-map-path }}
+        ISSUE_OVERRIDE: ${{ inputs.issue-override }}
+        ISSUE_LABELS: ${{ inputs.issue-labels }}
+        WORKSPACE_TOOLS: ${{ inputs.workspace-tools }}
       run: |
         ARGS=( "triage" )
 
+        [ -n "$AGENT" ]                 && ARGS+=( --agent "$AGENT" )
         [ -n "$OBS_PROVIDER" ]          && ARGS+=( --observability-provider "$OBS_PROVIDER" )
         [ -n "$ISSUE_TRACKER" ]         && ARGS+=( --issue-tracker-provider "$ISSUE_TRACKER" )
         [ -n "$SOURCE_CONTROL" ]        && ARGS+=( --source-control-provider "$SOURCE_CONTROL" )
@@ -314,6 +390,9 @@ runs:
         [ -n "$GITLAB_BASE_URL" ]       && ARGS+=( --gitlab-base-url "$GITLAB_BASE_URL" )
 
         [ -n "$ADDITIONAL_INSTRUCTIONS" ] && ARGS+=( --additional-instructions "$ADDITIONAL_INSTRUCTIONS" )
+        [ -n "$ISSUE_OVERRIDE" ]        && ARGS+=( --issue-override "$ISSUE_OVERRIDE" )
+        [ -n "$ISSUE_LABELS" ]          && ARGS+=( --issue-labels "$ISSUE_LABELS" )
+        [ -n "$WORKSPACE_TOOLS" ]       && ARGS+=( --workspace-tools "$WORKSPACE_TOOLS" )
 
         if [ "$DRY_RUN" = "true" ]; then ARGS+=( --dry-run ); fi
         if [ "$NOVELTY_MODE" = "false" ]; then ARGS+=( --no-novelty-mode ); fi
