@@ -29,7 +29,7 @@ inputs:
 
   # ── Observability provider ────────────────────────────────────────────
   observability-provider:
-    description: "Observability provider (datadog, sentry, betterstack, cloudwatch, splunk, elastic, newrelic, loki, prometheus, honeycomb, axiom, pagerduty, heroku, opsgenie, vercel, supabase, netlify, fly, render, file). Defaults to datadog."
+    description: "Observability provider(s). Comma-separated for multiple (e.g. 'loki,sentry'). All configured providers are queried in parallel. Valid: datadog, sentry, betterstack, cloudwatch, splunk, elastic, newrelic, loki, prometheus, honeycomb, axiom, pagerduty, heroku, opsgenie, vercel, supabase, netlify, fly, render, file."
     required: false
     default: "datadog"
   dd-api-key:
@@ -63,6 +63,15 @@ inputs:
     required: false
   betterstack-table-name:
     description: 'Better Stack Telemetry ClickHouse table name (e.g. "t273774.my_source").'
+    required: false
+  loki-url:
+    description: "Grafana Loki base URL (when observability-provider includes loki). e.g. https://logs-prod-036.grafana.net"
+    required: false
+  loki-api-key:
+    description: "Grafana Cloud API key for Loki authentication (HTTP Basic user:key)."
+    required: false
+  loki-org-id:
+    description: "Grafana Cloud org/user ID (X-Scope-OrgID header for multi-tenant Loki)."
     required: false
   newrelic-api-key:
     description: "New Relic User API key (when observability-provider = newrelic)."
@@ -314,6 +323,9 @@ runs:
         BETTERSTACK_API_TOKEN: ${{ inputs.betterstack-api-token }}
         BETTERSTACK_SOURCE_ID: ${{ inputs.betterstack-source-id }}
         BETTERSTACK_TABLE_NAME: ${{ inputs.betterstack-table-name }}
+        LOKI_URL: ${{ inputs.loki-url }}
+        LOKI_API_KEY: ${{ inputs.loki-api-key }}
+        LOKI_ORG_ID: ${{ inputs.loki-org-id }}
         NR_API_KEY: ${{ inputs.newrelic-api-key }}
         NR_REGION: ${{ inputs.newrelic-region }}
 
