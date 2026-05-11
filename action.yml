@@ -135,6 +135,14 @@ inputs:
   bot-token:
     description: "Optional bot token with elevated permissions (cross-repo dispatch, push to protected branches)."
     required: false
+  git-user-name:
+    description: "git user.name applied to commits the agent makes during the run. Default: SWEny Agent."
+    required: false
+    default: "SWEny Agent"
+  git-user-email:
+    description: "git user.email applied to commits the agent makes during the run. Default: agent@sweny.ai."
+    required: false
+    default: "agent@sweny.ai"
   gitlab-token:
     description: "GitLab personal access token (when source-control-provider = gitlab)."
     required: false
@@ -282,6 +290,21 @@ runs:
       env:
         CLI_VERSION: ${{ inputs.cli-version }}
       run: npm install -g "@sweny-ai/core@${CLI_VERSION}"
+
+    - name: Configure git identity for agent commits
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+      run: |
+        # The agent stages and commits the fix during the implement node.
+        # Without a preset identity, the first commit attempt fails with
+        # "fatal: empty ident name" and the agent has to recover mid-run
+        # (set identity itself, then retry). Set it up front so the
+        # implement node sees a working git environment from turn 1.
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
 
     - name: Run sweny triage
       shell: bash
