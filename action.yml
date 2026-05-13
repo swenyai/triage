@@ -227,6 +227,10 @@ inputs:
     description: "Dry run mode — analyze only, do not create issues or PRs."
     required: false
     default: "false"
+  verbose:
+    description: "When 'true', print each tool call's input and output inline. Truncated for readability; locally, the CLI's --stream flag yields full untruncated NDJSON. Helpful for debugging a triage run that halts or routes unexpectedly. Requires @sweny-ai/core >= 0.1.97."
+    required: false
+    default: "false"
   review-mode:
     description: "PR merge behavior: 'auto' (enable GitHub auto-merge when CI passes — automatically suppressed for high-risk changes such as migrations, auth, lockfiles, or >20 files), 'review' (open PR and wait for human approval)."
     required: false
@@ -257,6 +261,11 @@ inputs:
     description: "Working directory to run from. Defaults to the repository root."
     required: false
     default: "."
+
+  # ── Cloud reporting ───────────────────────────────────────────────────
+  cloud-token:
+    description: "SWEny Cloud project token (sweny_pk_...) for reporting triage results to cloud.sweny.ai. Optional. Equivalent to setting the SWENY_CLOUD_TOKEN env var; either form is accepted."
+    required: false
 
 runs:
   using: "composite"
@@ -343,6 +352,11 @@ runs:
         # ── Custom MCP servers ──────────────────────────────────────────
         SWENY_MCP_SERVERS: ${{ inputs.mcp-servers-json }}
 
+        # ── Cloud reporting ─────────────────────────────────────────────
+        # Forwarded into the CLI via the run script below so that an empty
+        # input does not clobber an inherited SWENY_CLOUD_TOKEN env var.
+        INPUT_CLOUD_TOKEN: ${{ inputs.cloud-token }}
+
         # ── Behavior knobs (passed as flags below) ──────────────────────
         AGENT: ${{ inputs.agent }}
         OBS_PROVIDER: ${{ inputs.observability-provider }}
@@ -358,6 +372,7 @@ runs:
         BASE_BRANCH: ${{ inputs.base-branch }}
         PR_LABELS: ${{ inputs.pr-labels }}
         DRY_RUN: ${{ inputs.dry-run }}
+        VERBOSE: ${{ inputs.verbose }}
         REVIEW_MODE: ${{ inputs.review-mode }}
         NOVELTY_MODE: ${{ inputs.novelty-mode }}
         ADDITIONAL_INSTRUCTIONS: ${{ inputs.additional-instructions }}
@@ -366,6 +381,14 @@ runs:
         ISSUE_LABELS: ${{ inputs.issue-labels }}
         WORKSPACE_TOOLS: ${{ inputs.workspace-tools }}
       run: |
+        # Forward the cloud token to the CLI. Prefer the explicit `cloud-token`
+        # input; otherwise honor whatever the caller put on the step env as
+        # SWENY_CLOUD_TOKEN. Never overwrite a non-empty inherited value with
+        # an empty input.
+        if [ -n "$INPUT_CLOUD_TOKEN" ]; then
+          export SWENY_CLOUD_TOKEN="$INPUT_CLOUD_TOKEN"
+        fi
+
         ARGS=( "triage" )
 
         [ -n "$AGENT" ]                 && ARGS+=( --agent "$AGENT" )
@@ -408,5 +431,9 @@ runs:
 
         if [ "$DRY_RUN" = "true" ]; then ARGS+=( --dry-run ); fi
         if [ "$NOVELTY_MODE" = "false" ]; then ARGS+=( --no-novelty-mode ); fi
+        # Normalize verbose (true / TRUE / 1 / yes) so callers can pass any
+        # truthy spelling without a surprise.
+        VERBOSE_NORM=$(echo "${VERBOSE:-false}" | tr '[:upper:]' '[:lower:]')
+        case "$VERBOSE_NORM" in true|1|yes) ARGS+=( --verbose ) ;; esac
 
         sweny "${ARGS[@]}"
